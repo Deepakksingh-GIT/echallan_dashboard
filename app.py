@@ -25,6 +25,13 @@ if "Date" in df.columns:
     df = df[(df["Date"] >= pd.to_datetime(start_date)) & 
             (df["Date"] <= pd.to_datetime(end_date))]
 
+# Clean Column Names
+df.columns = df.columns.str.strip()      # remove extra spaces
+df.columns = df.columns.str.replace(" ", "_")  # replace space with underscore
+df.columns = df.columns.str.lower()      # make lowercase
+
+st.write("Columns in dataset:", df.columns)
+
 # KPI Section
 st.subheader("📊 Key Performance Indicators")
 
