@@ -7,11 +7,11 @@ import seaborn as sns
 # --------------------------------------------------
 # PAGE CONFIG
 # --------------------------------------------------
-st.set_page_config(page_title="E-Challan Pro Dashboard",
+st.set_page_config(page_title="E-Challan BI Dashboard",
                    layout="wide",
                    page_icon="🚦")
 
-st.title("🚦 E-Challan Analytics Dashboard (Professional Version)")
+st.title("🚦 E-Challan Business Intelligence Dashboard")
 
 # --------------------------------------------------
 # LOAD DATA
@@ -19,12 +19,9 @@ st.title("🚦 E-Challan Analytics Dashboard (Professional Version)")
 @st.cache_data
 def load_data():
     df = pd.read_csv("echallan_daily_data.csv")
-    
-    # Clean column names
     df.columns = df.columns.str.strip()
     df.columns = df.columns.str.replace(" ", "_")
     df.columns = df.columns.str.lower()
-    
     return df
 
 df = load_data()
@@ -42,165 +39,156 @@ st.sidebar.header("🔍 Filters")
 if "date" in df.columns:
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
-    
-    start_date = st.sidebar.date_input("Start Date", df["date"].min())
-    end_date = st.sidebar.date_input("End Date", df["date"].max())
-    
-    df = df[(df["date"] >= pd.to_datetime(start_date)) &
-            (df["date"] <= pd.to_datetime(end_date))]
+    start = st.sidebar.date_input("Start Date", df["date"].min())
+    end = st.sidebar.date_input("End Date", df["date"].max())
+    df = df[(df["date"] >= pd.to_datetime(start)) &
+            (df["date"] <= pd.to_datetime(end))]
 
-# Violation Filter
-if "violation_type" in df.columns:
-    violation = st.sidebar.multiselect(
-        "Select Violation Type",
-        options=df["violation_type"].unique(),
-        default=df["violation_type"].unique()
+# Category Filter
+categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
+selected_category_col = None
+
+if categorical_cols:
+    selected_category_col = st.sidebar.selectbox(
+        "Select Category Column",
+        categorical_cols
     )
-    df = df[df["violation_type"].isin(violation)]
+    selected_values = st.sidebar.multiselect(
+        "Select Values",
+        df[selected_category_col].unique(),
+        default=df[selected_category_col].unique()
+    )
+    df = df[df[selected_category_col].isin(selected_values)]
 
 # Top N
-top_n = st.sidebar.slider("Select Top N Violations", 1, 20, 5)
+top_n = st.sidebar.slider("Select Top N", 1, 20, 5)
 
-# KPI Selector
+# --------------------------------------------------
+# KPI SECTION
+# --------------------------------------------------
 st.sidebar.header("📊 KPI Selection")
 kpi_option = st.sidebar.radio(
     "Choose KPI",
-    ["All KPIs", "Total Challans", "Total Revenue", "Average Revenue"]
+    ["All KPIs", "Numeric Column Summary"]
 )
 
-# --------------------------------------------------
-# KPI CALCULATIONS
-# --------------------------------------------------
-total_challans = df["challan_count"].sum() if "challan_count" in df.columns else 0
-total_amount = df["total_amount"].sum() if "total_amount" in df.columns else 0
-avg_amount = df["total_amount"].mean() if "total_amount" in df.columns else 0
+numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
 
-# Growth Calculation (if date available)
-growth = 0
-if "date" in df.columns and "challan_count" in df.columns:
-    trend = df.groupby("date")["challan_count"].sum().reset_index()
-    if len(trend) > 1:
-        growth = ((trend["challan_count"].iloc[-1] -
-                   trend["challan_count"].iloc[0])
-                  / trend["challan_count"].iloc[0]) * 100
-
-# --------------------------------------------------
-# KPI DISPLAY
-# --------------------------------------------------
 st.subheader("📊 Key Performance Indicators")
 
-col1, col2, col3 = st.columns(3)
+if numeric_cols:
+    selected_kpi_col = st.selectbox("Select KPI Column", numeric_cols)
 
-if kpi_option == "All KPIs":
-    col1.metric("Total Challans", f"{total_challans:,}",
-                f"{growth:.2f}% Growth")
-    col2.metric("Total Revenue", f"₹ {total_amount:,.0f}")
-    col3.metric("Average Revenue", f"₹ {avg_amount:,.0f}")
+    total = df[selected_kpi_col].sum()
+    avg = df[selected_kpi_col].mean()
+    max_val = df[selected_kpi_col].max()
 
-elif kpi_option == "Total Challans":
-    col1.metric("Total Challans", f"{total_challans:,}",
-                f"{growth:.2f}% Growth")
+    col1, col2, col3 = st.columns(3)
 
-elif kpi_option == "Total Revenue":
-    col2.metric("Total Revenue", f"₹ {total_amount:,.0f}")
+    if kpi_option == "All KPIs":
+        col1.metric("Total", f"{total:,.0f}")
+        col2.metric("Average", f"{avg:,.2f}")
+        col3.metric("Maximum", f"{max_val:,.0f}")
 
-elif kpi_option == "Average Revenue":
-    col3.metric("Average Revenue", f"₹ {avg_amount:,.0f}")
-
-# --------------------------------------------------
-# TOP N DATA
-# --------------------------------------------------
-top_data = pd.DataFrame()
-
-if "violation_type" in df.columns and "challan_count" in df.columns:
-    grouped = (
-        df.groupby("violation_type", as_index=False)["challan_count"]
-        .sum()
-        .sort_values(by="challan_count", ascending=False)
-    )
-    
-    if not grouped.empty:
-        top_data = grouped.head(top_n)
+    else:
+        col1.metric("Total", f"{total:,.0f}")
 
 # --------------------------------------------------
-# CHARTS
+# DYNAMIC CHART OPTIONS
 # --------------------------------------------------
-st.subheader("📈 Visual Analytics")
+st.sidebar.header("📈 Chart Options")
 
-# 1️⃣ Top N Bar Chart
-if not top_data.empty:
-    fig_bar = px.bar(
-        top_data,
-        x="violation_type",
-        y="challan_count",
-        title=f"Top {top_n} Violations"
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+chart_type = st.sidebar.selectbox(
+    "Select Chart Type",
+    ["Bar Chart", "Line Chart", "Pie Chart",
+     "Histogram", "Area Chart",
+     "Scatter Plot", "Heatmap"]
+)
 
-# 2️⃣ Line Chart
-if "date" in df.columns and "challan_count" in df.columns:
-    trend_data = df.groupby("date")["challan_count"].sum().reset_index()
-    fig_line = px.line(
-        trend_data,
-        x="date",
-        y="challan_count",
-        title="Daily Challan Trend"
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
+# Axis Selection
+x_axis = None
+y_axis = None
 
-# 3️⃣ Revenue Area
-if "date" in df.columns and "total_amount" in df.columns:
-    revenue_data = df.groupby("date")["total_amount"].sum().reset_index()
-    fig_area = px.area(
-        revenue_data,
-        x="date",
-        y="total_amount",
-        title="Revenue Over Time"
-    )
-    st.plotly_chart(fig_area, use_container_width=True)
+if numeric_cols:
+    x_axis = st.sidebar.selectbox("Select X-Axis", df.columns)
+    y_axis = st.sidebar.selectbox("Select Y-Axis (Numeric)", numeric_cols)
 
-# 4️⃣ Pie Chart
-if not top_data.empty:
-    fig_pie = px.pie(
-        top_data,
-        names="violation_type",
-        values="challan_count",
-        title="Violation Distribution"
-    )
-    st.plotly_chart(fig_pie, use_container_width=True)
+# --------------------------------------------------
+# CHART DISPLAY
+# --------------------------------------------------
+st.subheader("📈 Dynamic Visualization")
 
-# 5️⃣ Scatter Plot
-if "challan_count" in df.columns and "total_amount" in df.columns:
-    fig_scatter = px.scatter(
-        df,
-        x="challan_count",
-        y="total_amount",
-        title="Challan vs Revenue"
-    )
-    st.plotly_chart(fig_scatter, use_container_width=True)
+if chart_type == "Bar Chart":
+    if x_axis and y_axis:
+        grouped = df.groupby(x_axis, as_index=False)[y_axis].sum()
+        grouped = grouped.sort_values(by=y_axis, ascending=False).head(top_n)
+        fig = px.bar(grouped, x=x_axis, y=y_axis,
+                     title="Bar Chart")
+        st.plotly_chart(fig, use_container_width=True)
 
-# 6️⃣ Heatmap
-numeric_df = df.select_dtypes(include=["float64", "int64"])
-if not numeric_df.empty:
-    st.subheader("🔥 Correlation Heatmap")
-    fig, ax = plt.subplots()
-    sns.heatmap(numeric_df.corr(), annot=True, cmap="coolwarm", ax=ax)
-    st.pyplot(fig)
+elif chart_type == "Line Chart":
+    if x_axis and y_axis:
+        grouped = df.groupby(x_axis, as_index=False)[y_axis].sum()
+        fig = px.line(grouped, x=x_axis, y=y_axis,
+                      title="Line Chart")
+        st.plotly_chart(fig, use_container_width=True)
+
+elif chart_type == "Pie Chart":
+    if x_axis and y_axis:
+        grouped = df.groupby(x_axis, as_index=False)[y_axis].sum()
+        grouped = grouped.head(top_n)
+        fig = px.pie(grouped, names=x_axis,
+                     values=y_axis,
+                     title="Pie Chart")
+        st.plotly_chart(fig, use_container_width=True)
+
+elif chart_type == "Histogram":
+    if y_axis:
+        fig = px.histogram(df, x=y_axis,
+                           title="Histogram")
+        st.plotly_chart(fig, use_container_width=True)
+
+elif chart_type == "Area Chart":
+    if x_axis and y_axis:
+        grouped = df.groupby(x_axis, as_index=False)[y_axis].sum()
+        fig = px.area(grouped, x=x_axis, y=y_axis,
+                      title="Area Chart")
+        st.plotly_chart(fig, use_container_width=True)
+
+elif chart_type == "Scatter Plot":
+    if x_axis and y_axis:
+        fig = px.scatter(df,
+                         x=x_axis,
+                         y=y_axis,
+                         title="Scatter Plot")
+        st.plotly_chart(fig, use_container_width=True)
+
+elif chart_type == "Heatmap":
+    numeric_df = df.select_dtypes(include=["int64", "float64"])
+    if not numeric_df.empty:
+        fig, ax = plt.subplots()
+        sns.heatmap(numeric_df.corr(),
+                    annot=True,
+                    cmap="coolwarm",
+                    ax=ax)
+        st.pyplot(fig)
 
 # --------------------------------------------------
 # DOWNLOAD BUTTON
 # --------------------------------------------------
 st.subheader("⬇ Download Filtered Data")
-csv = df.to_csv(index=False).encode('utf-8')
+
+csv = df.to_csv(index=False).encode("utf-8")
+
 st.download_button(
     label="Download CSV",
     data=csv,
-    file_name="filtered_echallan_data.csv",
-    mime="text/csv",
+    file_name="filtered_data.csv",
+    mime="text/csv"
 )
 
 # --------------------------------------------------
 # FOOTER
 # --------------------------------------------------
 st.markdown("---")
-st.markdown("🚀 Built by Deepak | Streamlit Professional Dashboard")
+st.markdown("🚀 Built by Deepak | Streamlit BI Dashboard")
